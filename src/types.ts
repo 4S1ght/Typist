@@ -1,9 +1,10 @@
 
 
-type VariableType = 
+export type VariableType = 
     "string"  | "number"   | "bigint"    | 
     "boolean" | "symbol"   | "undefined" | 
-    "object"  | "function" | "array"     | "null"
+    "object"  | "function" | "array"     | 
+    "null"      
 
 
 /**

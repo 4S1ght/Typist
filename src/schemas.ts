@@ -29,12 +29,16 @@ interface SchemaProp<Type extends VariableType, ValueType = any> {
 
 }
 
+type ObjectOf<Item = any> = {
+    [key: string|number]: Item
+}
+
 
 // HELPERS ==========================================================
 
 
 const compareTypes = (optional: boolean, propType: VariableType, varType: VariableType) =>
-    propType !== varType || (optional && varType === 'undefined')
+    propType === varType || (optional && varType === 'undefined')
 
 const compareAllowedValues = (allowedValues: any[], value: any) =>
     allowedValues.length === 0 || allowedValues.includes(value)
@@ -61,10 +65,14 @@ export class $Prop<Type extends (VariableType | "any"), ValueType = any> impleme
         // Compare the value to a set of allowed ones if they were specified
         if (!compareAllowedValues(this.allowedValues, value)) return false
 
-        return false
+        return true
     }
 
 }
+
+
+// ==================================================================
+
 
 export class $String extends $Prop<"string", string> {
 
@@ -73,7 +81,7 @@ export class $String extends $Prop<"string", string> {
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
-        return false
+        return true
     }
 
 }
@@ -85,7 +93,7 @@ export class $Number extends $Prop<"number", number> {
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
-        return false
+        return true
     }
 
 }
@@ -98,7 +106,7 @@ export class $Int extends $Prop<"number", number> {
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
         if (!this.optional && !Number.isInteger(value)) return false
-        return false
+        return true
     }
 
 }
@@ -110,7 +118,7 @@ export class $BigInt extends $Prop<"bigint", bigint> {
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
-        return false
+        return true
     }
 
 }
@@ -122,7 +130,7 @@ export class $Boolean extends $Prop<"boolean", boolean> {
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
-        return false
+        return true
     }
 
 }
@@ -134,7 +142,7 @@ export class $Undefined extends $Prop<"undefined", undefined> {
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
-        return false
+        return true
     }
 
 }
@@ -146,7 +154,7 @@ export class $Object extends $Prop<"object", object> {
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
-        return false
+        return true
     }
 
 }
@@ -154,17 +162,16 @@ export class $Object extends $Prop<"object", object> {
 // TODO: Add functionality allowing to check types of variables inside of the array (including other object/array schemas)
 export class $Array extends $Prop<"array", Array<any>> {
 
-    constructor(optional?: boolean /*allowedValues: Array<VariableType>*/) {
+    constructor(optional?: boolean, allowedValueTypes?: Array<VariableType>) {
         super("array", !!optional, [])
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
-        return false
+        return true
     }
 
 }
 
-// TODO: Add functionality allowing to check types of variables inside of the array (including other object/array schemas)
 export class $Function extends $Prop<"function", Array<Function>> {
 
     constructor(optional?: boolean) {
@@ -172,7 +179,46 @@ export class $Function extends $Prop<"function", Array<Function>> {
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
-        return false
+        return true
     }
 
+}
+
+
+// SCHEMA VALIDATION ================================================
+
+
+export class $Schema {
+
+    constructor(public schema: ObjectOf<$Prop<any> & { validate: (value: any) => boolean }>) {
+        if (!typeOf(schema, ['array', 'object'])) throw new TypeError('Provided schema is not object-like.')
+    }
+
+    public validate(object: any): Boolean {
+        try {
+
+            if (!typeOf(object, ['array', 'object'])) return false
+    
+            for (const key in this.schema) {
+                if (Object.prototype.hasOwnProperty.call(this.schema, key)) {
+    
+                    const schemaProp = this.schema[key]
+                    const checkedProp = object[key]
+    
+                    const schemaType = schemaProp.type
+                    const checkedType = typeOf(checkedProp)
+    
+                    if (!schemaProp.validate(checkedProp)) return false
+                    
+                }
+            }
+    
+            return true
+    
+        } 
+        catch (error) {
+            console.log(error)
+            return false
+        }
+    }
 }

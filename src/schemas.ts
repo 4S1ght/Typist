@@ -17,10 +17,10 @@ interface SchemaPropInterface<Type extends VariableType, ValueType = any> {
     allowedValues: Array<ValueType>
 
     /**
-     * Specifies whether the property is optional, meaning it can be
+     * Specifies whether the property is required or optional, meaning it can be
      * undefined or not exist on the object in the first place.
      */
-    optional: boolean
+    required: boolean
 
     /**
      * A base callback function used to validate a property against the schema.
@@ -32,22 +32,25 @@ interface SchemaPropInterface<Type extends VariableType, ValueType = any> {
 type ObjectOf<Item = any> = {
     [key: string|number]: Item
 }
+type SelfOrArrayOf<Item = any> = Item | Array<Item>
 
 type RequiredPropMark = "?" | "!" | boolean | undefined
 
 // HELPERS ==========================================================
 
 
-const compareTypes = (optional: boolean, propType: VariableType, varType: VariableType) =>
-    propType === varType || (optional && varType === 'undefined')
+const compareTypes = (required: boolean, propType: VariableType, varType: VariableType) =>
+    propType === varType || (!required && varType === 'undefined')
 
 const compareAllowedValues = (allowedValues: any[], value: any) =>
     allowedValues.length === 0 || allowedValues.includes(value)
 
 const convertSyntaxToBool = (value: RequiredPropMark) => {
     if (typeOf(value, ['boolean', 'undefined'])) return !!value
-    return ({ "?": true, "!": false })[value as ("?"|"!")] || false
+    return ({ "?": false, "!": true })[value as ("?"|"!")] || false
 }
+
+const arrayWrap = <Item = any>(item: Item): Item[] => Array.isArray(item) ? item : [item]
 
 
 // PROPS ============================================================
@@ -56,18 +59,18 @@ const convertSyntaxToBool = (value: RequiredPropMark) => {
 export class $Prop<Type extends (VariableType | "any"), ValueType = any> implements SchemaPropInterface<Type, ValueType> {
 
     public type: Type
-    public optional: boolean
+    public required: boolean
     public allowedValues: ValueType[];
 
-    constructor(type: Type, optional: boolean, allowedValues: Array<ValueType>) {
+    constructor(type: Type, required: boolean, allowedValues: Array<ValueType>) {
         this.type = type
-        this.optional = optional
+        this.required = required
         this.allowedValues = allowedValues
     }
 
     public validateBasics(value: any) {
-        // Check of the types match and alternatively allow for "undefined" if prop is optional
-        if (!compareTypes(this.optional, this.type, typeOf(value))) return false
+        // Check of the types match and alternatively allow for "undefined" if prop is required
+        if (!compareTypes(this.required, this.type, typeOf(value))) return false
         // Compare the value to a set of allowed ones if they were specified
         if (!compareAllowedValues(this.allowedValues, value)) return false
 
@@ -82,8 +85,8 @@ export class $Prop<Type extends (VariableType | "any"), ValueType = any> impleme
 
 export class _String extends $Prop<"string", string> {
 
-    constructor(optional?: boolean, allowedValues?: Array<string>) {
-        super("string", !!optional, allowedValues || [])
+    constructor(required?: boolean, allowedValues?: Array<string>) {
+        super("string", !!required, allowedValues || [])
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
@@ -94,8 +97,8 @@ export class _String extends $Prop<"string", string> {
 
 export class _Number extends $Prop<"number", number> {
 
-    constructor(optional?: boolean, allowedValues?: Array<number>) {
-        super("number", !!optional, allowedValues || [])
+    constructor(required?: boolean, allowedValues?: Array<number>) {
+        super("number", !!required, allowedValues || [])
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
@@ -106,12 +109,12 @@ export class _Number extends $Prop<"number", number> {
 
 export class _Int extends $Prop<"number", number> {
 
-    constructor(optional?: boolean, allowedValues?: Array<number>) {
-        super("number", !!optional, allowedValues || [])
+    constructor(required?: boolean, allowedValues?: Array<number>) {
+        super("number", !!required, allowedValues || [])
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
-        if (!this.optional && !Number.isInteger(value)) return false
+        if (this.required && !Number.isInteger(value)) return false
         return true
     }
 
@@ -119,8 +122,8 @@ export class _Int extends $Prop<"number", number> {
 
 export class _BigInt extends $Prop<"bigint", bigint> {
 
-    constructor(optional?: boolean, allowedValues?: Array<bigint>) {
-        super("bigint", !!optional, allowedValues || [])
+    constructor(required?: boolean, allowedValues?: Array<bigint>) {
+        super("bigint", !!required, allowedValues || [])
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
@@ -131,8 +134,8 @@ export class _BigInt extends $Prop<"bigint", bigint> {
 
 export class _Boolean extends $Prop<"boolean", boolean> {
 
-    constructor(optional?: boolean) {
-        super("boolean", !!optional, [])
+    constructor(required?: boolean) {
+        super("boolean", !!required, [])
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
@@ -153,13 +156,41 @@ export class _Undefined extends $Prop<"undefined", undefined> {
 
 }
 
-export class _Object extends $Prop<"object", object> {
 
-    constructor(optional?: boolean, content?: ObjectOf<SchemaProp | Object>) {
-        super("object", !!optional, [])
+export class _Object extends $Prop<"object", SelfOrArrayOf<SchemaObject>> {
+
+    private internalSchemas: $Schema[] = []
+
+    constructor(required?: boolean, content?: SelfOrArrayOf<SchemaObject>) {
+        super("object", !!required, [])
+
+        if (content !== undefined) {
+
+            content = Array.isArray(content) ? content : [content]
+            const schemas = content[0] ? content : []
+            
+            for (const key in schemas) {
+                if (Object.prototype.hasOwnProperty.call(schemas, key)) {
+                    const schemaObject = schemas[key]
+                    this.internalSchemas.push(new $Schema(schemaObject))
+                }
+            }
+
+        }
+
     }
     public validate(value: any) {
-        if (!this.validateBasics(value)) return false
+        // Compare the type of the property against the schema prop type
+        if (!compareTypes(this.required, this.type, typeOf(value))) return false
+
+        // Compare the input value against all allowed schemas
+        const tests = this.internalSchemas.map(x => x.validate(value))
+
+        console.log(this.internalSchemas)
+        console.log(tests)
+
+        if (tests.length > 0 && tests.includes(true) === false) return false
+
         return true
     }
 
@@ -168,8 +199,8 @@ export class _Object extends $Prop<"object", object> {
 // TODO: Add functionality allowing to check types of variables inside of the array (including other object/array schemas)
 export class _Array extends $Prop<"array", Array<any>> {
 
-    constructor(optional?: boolean, allowedValueTypes?: Array<VariableType>) {
-        super("array", !!optional, [])
+    constructor(required?: boolean, allowedValueTypes?: Array<VariableType>) {
+        super("array", !!required, [])
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
@@ -180,8 +211,8 @@ export class _Array extends $Prop<"array", Array<any>> {
 
 export class _Function extends $Prop<"function", Array<Function>> {
 
-    constructor(optional?: boolean) {
-        super("function", !!optional, [])
+    constructor(required?: boolean) {
+        super("function", !!required, [])
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
@@ -219,7 +250,7 @@ export class $Schema {
     
             for (const key in this.schema) {
                 if (Object.prototype.hasOwnProperty.call(this.schema, key)) {
-    
+
                     const schemaProp  = this.schema[key] as SchemaProp
                     const checkedProp = object[key]      as SchemaProp
     
@@ -245,24 +276,36 @@ export class $Schema {
 
 // EXPORTS ================================================
 
-export const $String    = (optional?: RequiredPropMark, values?: Array<string>) => new _String    (convertSyntaxToBool(optional), values)
-export const $Number    = (optional?: RequiredPropMark, values?: Array<number>) => new _Number    (convertSyntaxToBool(optional), values)
-export const $Int       = (optional?: RequiredPropMark, values?: Array<number>) => new _Int       (convertSyntaxToBool(optional), values)
-export const $BigInt    = (optional?: RequiredPropMark, values?: Array<bigint>) => new _BigInt    (convertSyntaxToBool(optional), values)
-export const $Boolean   = (optional?: RequiredPropMark)                         => new _Boolean   (convertSyntaxToBool(optional))
-export const $Function  = (optional?: RequiredPropMark)                         => new _Function  (convertSyntaxToBool(optional))
-export const $Undefined = ()                                                    => new _Undefined ()
+export const $String    = (required: RequiredPropMark = "!", values?: Array<string>)                => new _String    (convertSyntaxToBool(required), values)
+export const $Number    = (required: RequiredPropMark = "!", values?: Array<number>)                => new _Number    (convertSyntaxToBool(required), values)
+export const $Int       = (required: RequiredPropMark = "!", values?: Array<number>)                => new _Int       (convertSyntaxToBool(required), values)
+export const $BigInt    = (required: RequiredPropMark = "!", values?: Array<bigint>)                => new _BigInt    (convertSyntaxToBool(required), values)
+export const $Boolean   = (required: RequiredPropMark = "!")                                        => new _Boolean   (convertSyntaxToBool(required))
+export const $Function  = (required: RequiredPropMark = "!")                                        => new _Function  (convertSyntaxToBool(required))
+export const $Undefined = ()                                                                        => new _Undefined ()
+
+export const $Object    = (required: RequiredPropMark = "!", values?: SelfOrArrayOf<SchemaObject>)  => new _Object    (convertSyntaxToBool(required), values)
 
 
 const x = new $Schema({
-    username: $String("!"),
-    age: $Int("!"),
-    other: {
-        address: $String(),
-        other_other: {
-            test: $Boolean()
-        }
-    }
+    stuff: $Object("?", [
+        { test1: $Boolean("?") },
+        { test2: $BigInt() }
+    ])
 })
 
-console.log(x)
+console.log(
+    '#1:',
+    x.validate({
+        stuff: {
+            test1: 'true'
+        }
+    }),
+    '#2:',
+    x.validate({
+        stuff: {
+            test2: 10n
+        }
+    })    
+)
+

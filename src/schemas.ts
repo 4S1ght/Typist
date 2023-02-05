@@ -85,11 +85,15 @@ export class $Prop<Type extends (VariableType | "any"), ValueType = any> impleme
 
 export class _String extends $Prop<"string", string> {
 
-    constructor(required?: boolean, allowedValues?: Array<string>) {
-        super("string", !!required, allowedValues || [])
+    private expression?: RegExp
+
+    constructor(required?: boolean, allowedValues?: Array<string> | RegExp) {
+        super("string", !!required, allowedValues instanceof RegExp ? [] : (allowedValues || []))
+        this.expression = allowedValues instanceof RegExp ? allowedValues : undefined
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
+        if (this.expression && !this.expression.test(value)) return false
         return true
     }
 
@@ -182,13 +186,8 @@ export class _Object extends $Prop<"object", SelfOrArrayOf<SchemaObject>> {
     public validate(value: any) {
         // Compare the type of the property against the schema prop type
         if (!compareTypes(this.required, this.type, typeOf(value))) return false
-
         // Compare the input value against all allowed schemas
         const tests = this.internalSchemas.map(x => x.validate(value))
-
-        console.log(this.internalSchemas)
-        console.log(tests)
-
         if (tests.length > 0 && tests.includes(true) === false) return false
 
         return true
@@ -276,7 +275,7 @@ export class $Schema {
 
 // EXPORTS ================================================
 
-export const $String    = (required: RequiredPropMark = "!", values?: Array<string>)                => new _String    (convertSyntaxToBool(required), values)
+export const $String    = (required: RequiredPropMark = "!", values?: Array<string> | RegExp)       => new _String    (convertSyntaxToBool(required), values)
 export const $Number    = (required: RequiredPropMark = "!", values?: Array<number>)                => new _Number    (convertSyntaxToBool(required), values)
 export const $Int       = (required: RequiredPropMark = "!", values?: Array<number>)                => new _Int       (convertSyntaxToBool(required), values)
 export const $BigInt    = (required: RequiredPropMark = "!", values?: Array<bigint>)                => new _BigInt    (convertSyntaxToBool(required), values)
@@ -285,27 +284,4 @@ export const $Function  = (required: RequiredPropMark = "!")                    
 export const $Undefined = ()                                                                        => new _Undefined ()
 
 export const $Object    = (required: RequiredPropMark = "!", values?: SelfOrArrayOf<SchemaObject>)  => new _Object    (convertSyntaxToBool(required), values)
-
-
-const x = new $Schema({
-    stuff: $Object("?", [
-        { test1: $Boolean("?") },
-        { test2: $BigInt() }
-    ])
-})
-
-console.log(
-    '#1:',
-    x.validate({
-        stuff: {
-            test1: 'true'
-        }
-    }),
-    '#2:',
-    x.validate({
-        stuff: {
-            test2: 10n
-        }
-    })    
-)
 

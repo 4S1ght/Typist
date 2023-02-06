@@ -1,5 +1,5 @@
 
-import { typeOf, VariableType } from "./types";
+import { typeOf, typesOf, VariableType } from "./types";
 
 
 // TYPES ============================================================
@@ -50,9 +50,6 @@ const convertSyntaxToBool = (value: RequiredPropMark) => {
     return ({ "?": false, "!": true })[value as ("?"|"!")] || false
 }
 
-const arrayWrap = <Item = any>(item: Item): Item[] => Array.isArray(item) ? item : [item]
-
-
 // PROPS ============================================================
 
 
@@ -101,11 +98,20 @@ export class _String extends $Prop<"string", string> {
 
 export class _Number extends $Prop<"number", number> {
 
-    constructor(required?: boolean, allowedValues?: Array<number>) {
-        super("number", !!required, allowedValues || [])
+    private range?: { min: number, max: number }
+
+    constructor(required?: boolean, allowedValues?: Array<number>)
+    constructor(required?: boolean, min?: number, max?: number)
+    constructor(required?: boolean, min?: Array<number> | number, max?: number)  {
+        super("number", !!required, Array.isArray(min) ? min : [])
+        if (typesOf([min, max], ['number'])) this.range = {
+            min: min as number,
+            max: max as number   
+        }
     }
     public validate(value: any) {
         if (!this.validateBasics(value)) return false
+        if (this.range && (value < this.range.min || value > this.range.max)) return false
         return true
     }
 
@@ -276,7 +282,6 @@ export class $Schema {
 // EXPORTS ================================================
 
 export const $String    = (required: RequiredPropMark = "!", values?: Array<string> | RegExp)       => new _String    (convertSyntaxToBool(required), values)
-export const $Number    = (required: RequiredPropMark = "!", values?: Array<number>)                => new _Number    (convertSyntaxToBool(required), values)
 export const $Int       = (required: RequiredPropMark = "!", values?: Array<number>)                => new _Int       (convertSyntaxToBool(required), values)
 export const $BigInt    = (required: RequiredPropMark = "!", values?: Array<bigint>)                => new _BigInt    (convertSyntaxToBool(required), values)
 export const $Boolean   = (required: RequiredPropMark = "!")                                        => new _Boolean   (convertSyntaxToBool(required))
@@ -285,3 +290,8 @@ export const $Undefined = ()                                                    
 
 export const $Object    = (required: RequiredPropMark = "!", values?: SelfOrArrayOf<SchemaObject>)  => new _Object    (convertSyntaxToBool(required), values)
 
+function $Number(required?: RequiredPropMark,       allowedValues?: Array<number>             ): _Number
+function $Number(required?: RequiredPropMark,       min?: number,                 max?: number): _Number
+function $Number(required: RequiredPropMark = "!",  min?: Array<number> | number, max?: number): _Number {
+    return new _Number(convertSyntaxToBool(required), min as number, max)
+}
